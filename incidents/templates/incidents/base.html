@@ -3,13 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    {% if title%}
+    {% if title %}
         <title>Secure Incident Portal - {{ title }}</title>
     {% else %}
         <title>Secure Incident Portal</title>
     {% endif %}
 </head>
 <body>
+    <header>
+        Secure Incident Portal
+    </header>
     {% block content %}{% endblock %}
 </body>
 </html>
