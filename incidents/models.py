@@ -43,3 +43,29 @@ class Note(models.Model):
 
     def __str__(self):
         return f"{self.incident} by {self.author}"
+
+class AuditLog(models.Model):
+    class Action(models.TextChoices):
+        INCIDENT_CREATED = "incident_created", "Incident created"
+        INCIDENT_EDITED = "incident_edited", "Incident edited"
+        INCIDENT_DELETED = "incident_deleted", "Incident deleted"
+        STATUS_CHANGED = "status_changed", "Status changed"
+        SEVERITY_CHANGED = "severity_changed", "Severity changed"
+        NOTE_ADDED = "note_added", "Note added"
+        ACCESS_DENIED = "access_denied", "Access denied"
+        LOGIN = "login", "Login"
+        LOGOUT = "logout", "Logout"
+        LOGIN_FAILED = "login_failed", "Login failed"
+
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True)
+    action = models.CharField(max_length=30, choices=Action.choices)
+    incident = models.ForeignKey(Incident, on_delete=models.SET_NULL, null=True, blank=True, related_name="audit_logs")
+    incident_ref = models.PositiveIntegerField(null=True, blank=True)
+    details = models.TextField(blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+
+    def __str__(self):
+        return f"At {self.timestamp}, {self.actor} has {self.action}" 
