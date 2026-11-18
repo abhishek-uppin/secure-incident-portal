@@ -17,8 +17,10 @@ class PortalUserAdmin(BaseUserAdmin):
         return fields
 
     def has_change_permission(self, request, obj=None):
-        if obj is not None and (obj.is_superuser or obj.is_staff or obj == request.user) and not request.user.is_superuser:
-            return False                      
+        if (obj is not None 
+        and (obj.is_superuser or obj.is_staff or obj == request.user) 
+        and not request.user.is_superuser):
+            return False
         return super().has_change_permission(request, obj)
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
