@@ -12,6 +12,15 @@
 <body>
     <header>
         Secure Incident Portal
+        {% if user.is_authenticated %}
+            <span>Logged in as {{ user.username }}</span>
+                <form action="{% url 'logout' %}" method="POST">
+                    {% csrf_token %}
+                    <button type="submit">Log out</button>
+                </form>
+        {% else %}
+            <a href="{% url 'login' %}">Log in</a>
+        {% endif %}
     </header>
     {% block content %}{% endblock %}
 </body>

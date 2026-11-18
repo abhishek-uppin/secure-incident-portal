@@ -2,5 +2,7 @@
 
 {% block content %}
     <h1>Welcome</h1>
-    <p>Employees can report incidents and analysts can review and investigate them.</p>
+    {% if not user.is_authenticated %}
+  <p>Please <a href="{% url 'login' %}">log in</a> to report or view incidents.</p>
+    {% endif %}
 {% endblock content %}
