@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group
 from .models import Incident, Note, AuditLog
+from .roles import ADMIN_ASSIGNABLE_ROLES
 
 User = get_user_model()
 admin.site.unregister(User)
@@ -25,7 +26,7 @@ class PortalUserAdmin(BaseUserAdmin):
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
         if db_field.name == "groups" and not request.user.is_superuser:
-            kwargs["queryset"] = Group.objects.filter(name__in=["Employee", "Analyst"])
+            kwargs["queryset"] = Group.objects.filter(name__in=ADMIN_ASSIGNABLE_ROLES)
         return super().formfield_for_manytomany(db_field, request, **kwargs)
 
 
