@@ -2,15 +2,33 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import Group
+from django.contrib.auth.forms import UserChangeForm
 from .models import Incident, Note, AuditLog
-from .roles import ADMIN_ASSIGNABLE_ROLES
+from .roles import ADMIN_ASSIGNABLE_ROLES, ALL_ROLES
+
 
 User = get_user_model()
 admin.site.unregister(User)
 
 
+class PortalUserChangeForm(UserChangeForm):
+    def clean(self):
+        cleaned_data = super().clean()
+
+        is_superuser_account = cleaned_data.get("is_superuser", self.instance.is_superuser)
+
+        if not is_superuser_account:
+            groups = cleaned_data.get("groups")
+            if groups is not None:
+                if groups.count() != 1 or groups.first().name not in ALL_ROLES:
+                    self.add_error("groups", "Each user must have exactly one role.")
+
+        return cleaned_data
+
+
 @admin.register(User)
 class PortalUserAdmin(BaseUserAdmin):
+    form = PortalUserChangeForm
     def get_readonly_fields(self, request, obj=None):
         fields = list(super().get_readonly_fields(request, obj))
         if not request.user.is_superuser:
@@ -19,7 +37,7 @@ class PortalUserAdmin(BaseUserAdmin):
 
     def has_change_permission(self, request, obj=None):
         if (obj is not None 
-        and (obj.is_superuser or obj.is_staff or obj == request.user) 
+        and (obj.is_superuser or obj.is_staff or obj == request.user)
         and not request.user.is_superuser):
             return False
         return super().has_change_permission(request, obj)
