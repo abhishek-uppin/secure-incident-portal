@@ -18,10 +18,18 @@
                     {% csrf_token %}
                     <button type="submit">Log out</button>
                 </form>
+            <a href="{% url 'incident-list' %}">Incidents</a>
         {% else %}
             <a href="{% url 'login' %}">Log in</a>
         {% endif %}
     </header>
+    {% if messages %}
+        <ul>
+            {% for message in messages %}
+            <li>{{ message }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
     {% block content %}{% endblock %}
 </body>
 </html>

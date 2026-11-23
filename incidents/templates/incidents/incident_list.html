@@ -1,0 +1,35 @@
+{% extends "incidents/base.html" %}
+
+{% block title %}Incidents{% endblock %}
+
+{% block content %}
+<h1>Incidents</h1>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Title</th>
+      <th>Category</th>
+      <th>Severity</th>
+      <th>Status</th>
+      {% if show_reporter %}<th>Reporter</th>{% endif %}
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for incident in incidents %}
+    <tr>
+      <td>{{ incident.pk }}</td>
+      <td><a href="{% url 'incident-detail' incident.pk %}">{{ incident.title }}</a></td>
+      <td>{{ incident.get_category_display }}</td>
+      <td>{{ incident.get_severity_display }}</td>
+      <td>{{ incident.get_status_display }}</td>
+      {% if show_reporter %}<td>{{ incident.reporter.username }}</td>{% endif %}
+      <td>{{ incident.created_at|date:"Y-m-d H:i" }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="7">No incidents to show.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

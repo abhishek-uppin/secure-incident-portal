@@ -132,5 +132,5 @@ MAILERS = {
 }
 
 LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'incident-home'
+LOGIN_REDIRECT_URL = 'incident-list'
 LOGOUT_REDIRECT_URL = 'incident-home'

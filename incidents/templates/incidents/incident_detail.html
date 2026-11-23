@@ -1,0 +1,31 @@
+{% extends "incidents/base.html" %}
+
+{% block title %}Incident {{ incident.pk }}{% endblock %}
+
+{% block content %}
+<h1>{{ incident.title }}</h1>
+<dl>
+  <dt>Category</dt><dd>{{ incident.get_category_display }}</dd>
+  <dt>Severity</dt><dd>{{ incident.get_severity_display }}</dd>
+  <dt>Status</dt><dd>{{ incident.get_status_display }}</dd>
+  <dt>Reporter</dt><dd>{{ incident.reporter.username }}</dd>
+  <dt>Occurred</dt><dd>{{ incident.occurred_at|date:"Y-m-d H:i"|default:"Not recorded" }}</dd>
+  <dt>Created</dt><dd>{{ incident.created_at|date:"Y-m-d H:i" }}</dd>
+  <dt>Last updated</dt><dd>{{ incident.updated_at|date:"Y-m-d H:i" }}</dd>
+</dl>
+
+<h2>Description</h2>
+{{ incident.description|linebreaks }}
+
+<h2>Notes</h2>
+{% for note in notes %}
+<div>
+  <p><strong>{{ note.author.username }}</strong>, {{ note.created_at|date:"Y-m-d H:i" }}</p>
+  {{ note.text|linebreaks }}
+</div>
+{% empty %}
+<p>No notes yet.</p>
+{% endfor %}
+
+<p><a href="{% url 'incident-list' %}">Back to incidents</a></p>
+{% endblock %}
