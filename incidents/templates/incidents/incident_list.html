@@ -4,6 +4,7 @@
 
 {% block content %}
 <h1>Incidents</h1>
+{% if can_create %}<p><a href="{% url 'incident-create' %}">Report an incident</a></p>{% endif %}
 <table>
   <thead>
     <tr>

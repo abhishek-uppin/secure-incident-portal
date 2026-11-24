@@ -1,0 +1,13 @@
+{% extends "incidents/base.html" %}
+
+{% block title %}{{ heading }}{% endblock %}
+
+{% block content %}
+<h1>{{ heading }}</h1>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit">Save</button>
+</form>
+<p><a href="{% url 'incident-list' %}">Cancel</a></p>
+{% endblock %}
