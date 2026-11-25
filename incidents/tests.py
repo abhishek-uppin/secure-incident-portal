@@ -6,7 +6,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import Incident
+from .models import Incident, Note
 from .roles import ROLE_ANALYST, ROLE_EMPLOYEE
 from .views import STATUS_OPEN
 
@@ -227,3 +227,114 @@ class IncidentEditTests(TestCase):
         self.mine.status = "closed"
         self.mine.save()
         self.assertNotContains(self.client.get(detail), self.url(self.mine))
+
+class IncidentTriageTests(TestCase):
+    def setUp(self):
+        self.owner = make_user("owner", ROLE_EMPLOYEE)
+        self.other = make_user("other", ROLE_EMPLOYEE)
+        self.analyst = make_user("analyst", ROLE_ANALYST)
+        self.incident = make_incident("Phish", self.owner)
+        self.url = reverse("incident-triage", args=[self.incident.pk])
+        self.new_severity = Incident._meta.get_field("severity").choices[-1][0]
+
+    def test_anonymous_redirected(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+
+    def test_analyst_changes_status_and_severity(self):
+        self.client.force_login(self.analyst)
+        self.client.post(self.url, {"status": "investigating", "severity": self.new_severity})
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.status, "investigating")
+        self.assertEqual(self.incident.severity, self.new_severity)
+
+    def test_analyst_can_reopen_closed_incident(self):
+        self.incident.status = "closed"
+        self.incident.save()
+        self.client.force_login(self.analyst)
+        self.client.post(self.url, {"status": STATUS_OPEN, "severity": self.incident.severity})
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.status, STATUS_OPEN)
+
+    def test_invalid_status_rejected(self):
+        self.client.force_login(self.analyst)
+        response = self.client.post(self.url, {"status": "banana", "severity": self.incident.severity})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("status", response.context["form"].errors)
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.status, STATUS_OPEN)
+
+    def test_forged_reporter_ignored(self):
+        self.client.force_login(self.analyst)
+        self.client.post(
+            self.url,
+            {"status": "investigating", "severity": self.incident.severity, "reporter": self.analyst.pk},
+        )
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.reporter, self.owner)
+
+    def test_owner_gets_403_and_nothing_changes(self):
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        response = self.client.post(self.url, {"status": "closed", "severity": self.incident.severity})
+        self.assertEqual(response.status_code, 403)
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.status, STATUS_OPEN)
+
+    def test_other_employee_gets_404(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+        response = self.client.post(self.url, {"status": "closed", "severity": self.incident.severity})
+        self.assertEqual(response.status_code, 404)
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.status, STATUS_OPEN)
+
+    def test_no_role_redirected_home(self):
+        self.client.force_login(make_user("norole"))
+        response = self.client.get(self.url)
+        self.assertRedirects(response, reverse("incident-home"))
+
+
+class NoteTests(TestCase):
+    def setUp(self):
+        self.owner = make_user("owner", ROLE_EMPLOYEE)
+        self.other = make_user("other", ROLE_EMPLOYEE)
+        self.analyst = make_user("analyst", ROLE_ANALYST)
+        self.incident = make_incident("Phish", self.owner)
+        self.url = reverse("incident-note-add", args=[self.incident.pk])
+
+    def test_analyst_adds_note_with_server_set_fields(self):
+        self.client.force_login(self.analyst)
+        self.client.post(self.url, {"text": "Checked mail logs", "author": self.owner.pk})
+        note = Note.objects.get()
+        self.assertEqual(note.author, self.analyst)
+        self.assertEqual(note.incident, self.incident)
+
+    def test_empty_note_rejected(self):
+        self.client.force_login(self.analyst)
+        response = self.client.post(self.url, {"text": ""})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Note.objects.count(), 0)
+
+    def test_owner_gets_403_and_no_note_created(self):
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        self.assertEqual(self.client.post(self.url, {"text": "x"}).status_code, 403)
+        self.assertEqual(Note.objects.count(), 0)
+
+    def test_other_employee_gets_404_and_no_note_created(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.post(self.url, {"text": "x"}).status_code, 404)
+        self.assertEqual(Note.objects.count(), 0)
+
+    def test_owner_sees_note_on_detail(self):
+        Note.objects.create(incident=self.incident, author=self.analyst, text="Visible note")
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("incident-detail", args=[self.incident.pk]))
+        self.assertContains(response, "Visible note")
+
+    def test_other_employee_cannot_see_note(self):
+        Note.objects.create(incident=self.incident, author=self.analyst, text="Hidden note")
+        self.client.force_login(self.other)
+        response = self.client.get(reverse("incident-detail", args=[self.incident.pk]))
+        self.assertEqual(response.status_code, 404)
