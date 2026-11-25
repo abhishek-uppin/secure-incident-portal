@@ -28,5 +28,7 @@
 {% endfor %}
 
 {% if can_edit %}<p><a href="{% url 'incident-edit' incident.pk %}">Edit this incident</a></p>{% endif %}
+{% if can_triage %}<a href="{% url 'incident-triage' incident.pk %}">Update status and severity</a>{% endif %}
+{% if can_add_note %}<a href="{% url 'incident-note-add' incident.pk %}">Add a note</a>{% endif %}
 <p><a href="{% url 'incident-list' %}">Back to incidents</a></p>
 {% endblock %}

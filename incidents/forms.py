@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 
-from .models import Incident
+from .models import Incident, Note
 
 
 class IncidentForm(forms.ModelForm):
@@ -23,3 +23,18 @@ class IncidentForm(forms.ModelForm):
         if value is not None and value > timezone.now():
             raise forms.ValidationError("The time cannot be in the future.")
         return value
+
+    from .models import Incident, Note
+
+
+class IncidentTriageForm(forms.ModelForm):
+    class Meta:
+        model = Incident
+        fields = ("status", "severity")
+
+
+class NoteForm(forms.ModelForm):
+    class Meta:
+        model = Note
+        fields = ("text",)
+

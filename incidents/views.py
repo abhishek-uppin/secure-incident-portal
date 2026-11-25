@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods, require_safe
 
-from .forms import IncidentForm
+from .forms import IncidentForm, IncidentTriageForm, NoteForm
 from .models import Incident
 from .roles import ROLE_ADMIN, ROLE_ANALYST, ROLE_EMPLOYEE, get_role
 
@@ -79,6 +79,8 @@ def incident_detail(request, pk):
         "incident": incident,
         "notes": notes,
         "can_edit": can_edit_incident(request.user, role, incident),
+        "can_triage": can_triage_incident(role),
+        "can_add_note": can_add_note(role),
     }
     return render(request, "incidents/incident_detail.html", context)
 
@@ -132,4 +134,68 @@ def incident_edit(request, pk):
         request,
         "incidents/incident_form.html",
         {"form": form, "heading": f"Edit incident {incident.pk}"},
+    )
+
+def can_triage_incident(role):
+    return role == ROLE_ANALYST
+
+
+def can_add_note(role):
+    return role == ROLE_ANALYST
+
+
+@require_http_methods(["GET", "POST"])
+def incident_triage(request, pk):
+    role = get_role(request.user)
+    if role is None:
+        return no_role_response(request)
+
+    incident = get_object_or_404(visible_incidents(request.user, role), pk=pk)
+
+    if not can_triage_incident(role):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = IncidentTriageForm(request.POST, instance=incident)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Incident updated.")
+            return redirect("incident-detail", pk=incident.pk)
+    else:
+        form = IncidentTriageForm(instance=incident)
+
+    return render(
+        request,
+        "incidents/incident_form.html",
+        {"form": form, "heading": "Update status and severity"},
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def incident_note_add(request, pk):
+    role = get_role(request.user)
+    if role is None:
+        return no_role_response(request)
+
+    incident = get_object_or_404(visible_incidents(request.user, role), pk=pk)
+
+    if not can_add_note(role):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = NoteForm(request.POST)
+        if form.is_valid():
+            note = form.save(commit=False)
+            note.incident = incident
+            note.author = request.user
+            note.save()
+            messages.success(request, "Note added.")
+            return redirect("incident-detail", pk=incident.pk)
+    else:
+        form = NoteForm()
+
+    return render(
+        request,
+        "incidents/incident_form.html",
+        {"form": form, "heading": "Add a note"},
     )
