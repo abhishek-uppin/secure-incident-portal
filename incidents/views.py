@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
+from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods, require_safe
 
@@ -28,6 +29,15 @@ def can_edit_incident(user, role, incident):
         and incident.reporter_id == user.id
         and incident.status == STATUS_OPEN
     )
+
+def can_delete_incident(role):
+    return role == ROLE_ADMIN
+
+def can_triage_incident(role):
+    return role == ROLE_ANALYST
+
+def can_add_note(role):
+    return role == ROLE_ANALYST
 
 NO_ROLE_MESSAGE = "Your account has no role yet. Contact an administrator."
 
@@ -81,6 +91,7 @@ def incident_detail(request, pk):
         "can_edit": can_edit_incident(request.user, role, incident),
         "can_triage": can_triage_incident(role),
         "can_add_note": can_add_note(role),
+        "can_delete": can_delete_incident(role),
     }
     return render(request, "incidents/incident_detail.html", context)
 
@@ -135,13 +146,6 @@ def incident_edit(request, pk):
         "incidents/incident_form.html",
         {"form": form, "heading": f"Edit incident {incident.pk}"},
     )
-
-def can_triage_incident(role):
-    return role == ROLE_ANALYST
-
-
-def can_add_note(role):
-    return role == ROLE_ANALYST
 
 
 @require_http_methods(["GET", "POST"])
@@ -198,4 +202,34 @@ def incident_note_add(request, pk):
         request,
         "incidents/incident_form.html",
         {"form": form, "heading": "Add a note"},
+    )
+
+
+@require_http_methods(["GET", "POST"])
+def incident_delete(request, pk):
+    role = get_role(request.user)
+    if role is None:
+        return no_role_response(request)
+
+    incident = get_object_or_404(visible_incidents(request.user, role), pk=pk)
+
+    if not can_delete_incident(role):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        try:
+            incident.delete()
+        except ProtectedError:
+            messages.error(
+                request,
+                "This incident has notes and cannot be deleted. Close it instead.",
+            )
+            return redirect("incident-detail", pk=pk)
+        messages.success(request, "Incident deleted.")
+        return redirect("incident-list")
+
+    return render(
+        request,
+        "incidents/incident_confirm_delete.html",
+        {"incident": incident},
     )

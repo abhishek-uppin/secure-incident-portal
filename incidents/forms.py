@@ -24,14 +24,10 @@ class IncidentForm(forms.ModelForm):
             raise forms.ValidationError("The time cannot be in the future.")
         return value
 
-    from .models import Incident, Note
-
-
 class IncidentTriageForm(forms.ModelForm):
     class Meta:
         model = Incident
         fields = ("status", "severity")
-
 
 class NoteForm(forms.ModelForm):
     class Meta:
