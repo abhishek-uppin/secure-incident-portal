@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .models import Incident, Note
-from .roles import ROLE_ANALYST, ROLE_EMPLOYEE
+from .roles import ROLE_ANALYST, ROLE_EMPLOYEE, ROLE_ADMIN
 from .views import STATUS_OPEN
 
 
@@ -338,3 +338,72 @@ class NoteTests(TestCase):
         self.client.force_login(self.other)
         response = self.client.get(reverse("incident-detail", args=[self.incident.pk]))
         self.assertEqual(response.status_code, 404)
+
+class IncidentDeleteTests(TestCase):
+    def setUp(self):
+        self.owner = make_user("owner", ROLE_EMPLOYEE)
+        self.other = make_user("other", ROLE_EMPLOYEE)
+        self.analyst = make_user("analyst", ROLE_ANALYST)
+        self.admin = make_user("admin_user", ROLE_ADMIN)
+        self.incident = make_incident("Phish", self.owner)
+        self.url = reverse("incident-delete", args=[self.incident.pk])
+
+    def test_anonymous_redirected_and_incident_kept(self):
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Incident.objects.filter(pk=self.incident.pk).exists())
+
+    def test_admin_get_shows_confirmation_and_deletes_nothing(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Incident.objects.filter(pk=self.incident.pk).exists())
+
+    def test_admin_post_deletes(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(self.url)
+        self.assertRedirects(response, reverse("incident-list"))
+        self.assertFalse(Incident.objects.filter(pk=self.incident.pk).exists())
+
+    def test_incident_with_notes_is_kept_with_friendly_message(self):
+        Note.objects.create(incident=self.incident, author=self.analyst, text="Evidence")
+        self.client.force_login(self.admin)
+        response = self.client.post(self.url, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "cannot be deleted")
+        self.assertTrue(Incident.objects.filter(pk=self.incident.pk).exists())
+        self.assertEqual(Note.objects.count(), 1)
+
+    def test_analyst_gets_403_and_incident_kept(self):
+        self.client.force_login(self.analyst)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        self.assertEqual(self.client.post(self.url).status_code, 403)
+        self.assertTrue(Incident.objects.filter(pk=self.incident.pk).exists())
+
+    def test_owner_gets_403_and_incident_kept(self):
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.post(self.url).status_code, 403)
+        self.assertTrue(Incident.objects.filter(pk=self.incident.pk).exists())
+
+    def test_other_employee_gets_404_and_incident_kept(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.post(self.url).status_code, 404)
+        self.assertTrue(Incident.objects.filter(pk=self.incident.pk).exists())
+
+    def test_missing_incident_gives_404(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse("incident-delete", args=[999999]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_post_without_csrf_token_is_rejected(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.admin)
+        response = client.post(self.url)
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Incident.objects.filter(pk=self.incident.pk).exists())
+
+    def test_no_role_redirected_and_incident_kept(self):
+        self.client.force_login(make_user("norole"))
+        response = self.client.post(self.url)
+        self.assertRedirects(response, reverse("incident-home"))
+        self.assertTrue(Incident.objects.filter(pk=self.incident.pk).exists())
