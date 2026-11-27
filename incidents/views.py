@@ -2,9 +2,12 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_not_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import ProtectedError
-from django.shortcuts import get_object_or_404, redirect, render
+from django.db import transaction
+from django.http import Http404
+from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods, require_safe
 
+from . import audit
 from .forms import IncidentForm, IncidentTriageForm, NoteForm
 from .models import Incident
 from .roles import ROLE_ADMIN, ROLE_ANALYST, ROLE_EMPLOYEE, get_role
@@ -55,6 +58,37 @@ def visible_incidents(user, role):
     return Incident.objects.none()
 
 
+def get_visible_incident(request, role, pk):
+    incident = (
+        visible_incidents(request.user, role)
+        .select_related("reporter")
+        .filter(pk=pk)
+        .first()
+    )
+    if incident is not None:
+        return incident
+
+    existing = Incident.objects.filter(pk=pk).first()
+    if existing is not None:
+        audit.log_event(
+            request,
+            audit.ACCESS_DENIED,
+            incident=existing,
+            details="Incident not visible to this user",
+        )
+    raise Http404
+
+
+def deny(request, incident, attempted):
+    audit.log_event(
+        request,
+        audit.ACCESS_DENIED,
+        incident=incident,
+        details=f"Not allowed: {attempted}",
+    )
+    raise PermissionDenied
+
+
 @require_safe
 def incident_list(request):
     role = get_role(request.user)
@@ -80,10 +114,7 @@ def incident_detail(request, pk):
     if role is None:
         return no_role_response(request)
 
-    incident = get_object_or_404(
-        visible_incidents(request.user, role).select_related("reporter"),
-        pk=pk,
-    )
+    incident = get_visible_incident(request, role, pk)
     notes = incident.notes.select_related("author").order_by("created_at")
     context = {
         "incident": incident,
@@ -102,14 +133,16 @@ def incident_create(request):
     if role is None:
         return no_role_response(request)
     if not can_create_incident(role):
-        raise PermissionDenied
+        deny(request, None, "create incident")
 
     if request.method == "POST":
         form = IncidentForm(request.POST)
         if form.is_valid():
             incident = form.save(commit=False)
             incident.reporter = request.user
-            incident.save()
+            with transaction.atomic():
+                incident.save()
+                audit.log_event(request, audit.INCIDENT_CREATED, incident=incident)
             messages.success(request, "Incident reported.")
             return redirect("incident-detail", pk=incident.pk)
     else:
@@ -128,14 +161,22 @@ def incident_edit(request, pk):
     if role is None:
         return no_role_response(request)
 
-    incident = get_object_or_404(visible_incidents(request.user, role), pk=pk)
+    incident = get_visible_incident(request, role, pk)
     if not can_edit_incident(request.user, role, incident):
-        raise PermissionDenied
+        deny(request, incident, "edit incident")
 
     if request.method == "POST":
         form = IncidentForm(request.POST, instance=incident)
         if form.is_valid():
-            form.save()
+            with transaction.atomic():
+                form.save()
+                if form.changed_data:
+                    audit.log_event(
+                        request,
+                        audit.INCIDENT_EDITED,
+                        incident=incident,
+                        details="Fields changed: " + ", ".join(form.changed_data),
+                    )
             messages.success(request, "Incident updated.")
             return redirect("incident-detail", pk=incident.pk)
     else:
@@ -154,15 +195,31 @@ def incident_triage(request, pk):
     if role is None:
         return no_role_response(request)
 
-    incident = get_object_or_404(visible_incidents(request.user, role), pk=pk)
-
+    incident = get_visible_incident(request, role, pk)
     if not can_triage_incident(role):
-        raise PermissionDenied
+        deny(request, incident, "change status or severity")
 
     if request.method == "POST":
         form = IncidentTriageForm(request.POST, instance=incident)
         if form.is_valid():
-            form.save()
+            old_status = form.initial["status"]
+            old_severity = form.initial["severity"]
+            with transaction.atomic():
+                form.save()
+                if "status" in form.changed_data:
+                    audit.log_event(
+                        request,
+                        audit.STATUS_CHANGED,
+                        incident=incident,
+                        details=f"{old_status} -> {incident.status}",
+                    )
+                if "severity" in form.changed_data:
+                    audit.log_event(
+                        request,
+                        audit.SEVERITY_CHANGED,
+                        incident=incident,
+                        details=f"{old_severity} -> {incident.severity}",
+                    )
             messages.success(request, "Incident updated.")
             return redirect("incident-detail", pk=incident.pk)
     else:
@@ -181,10 +238,9 @@ def incident_note_add(request, pk):
     if role is None:
         return no_role_response(request)
 
-    incident = get_object_or_404(visible_incidents(request.user, role), pk=pk)
-
+    incident = get_visible_incident(request, role, pk)
     if not can_add_note(role):
-        raise PermissionDenied
+        deny(request, incident, "add note")
 
     if request.method == "POST":
         form = NoteForm(request.POST)
@@ -192,7 +248,14 @@ def incident_note_add(request, pk):
             note = form.save(commit=False)
             note.incident = incident
             note.author = request.user
-            note.save()
+            with transaction.atomic():
+                note.save()
+                audit.log_event(
+                    request,
+                    audit.NOTE_ADDED,
+                    incident=incident,
+                    details=f"Note {note.pk}",
+                )
             messages.success(request, "Note added.")
             return redirect("incident-detail", pk=incident.pk)
     else:
@@ -211,14 +274,15 @@ def incident_delete(request, pk):
     if role is None:
         return no_role_response(request)
 
-    incident = get_object_or_404(visible_incidents(request.user, role), pk=pk)
-
+    incident = get_visible_incident(request, role, pk)
     if not can_delete_incident(role):
-        raise PermissionDenied
+        deny(request, incident, "delete incident")
 
     if request.method == "POST":
         try:
-            incident.delete()
+            with transaction.atomic():
+                audit.log_event(request, audit.INCIDENT_DELETED, incident=incident)
+                incident.delete()
         except ProtectedError:
             messages.error(
                 request,
